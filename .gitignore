@@ -31,4 +31,13 @@ htmlcov/
 
 # Environment variables
 .env
-data/*
+
+# Data files
+data/
+output/
+*.csv
+*.xlsx
+*.xls
+
+# Streamlit
+.streamlit/secrets.toml
