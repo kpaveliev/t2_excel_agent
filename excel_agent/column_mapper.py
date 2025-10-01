@@ -5,6 +5,7 @@ from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 from langchain.output_parsers import PydanticOutputParser
 from pydantic import BaseModel, Field
+from excel_agent.config import logger
 
 
 class ColumnMapping(BaseModel):
@@ -84,6 +85,8 @@ def find_relevant_columns(
     Returns:
         ColumnMapping object with identified columns
     """
+    logger.debug(f"Sending LLM request for sheet '{current_sheet}' with {len(columns)} columns")
+    
     result = llm_chain.invoke({
         "filename": filename,
         "sheets": ", ".join(sheets),
@@ -92,6 +95,8 @@ def find_relevant_columns(
         "preview": preview,
         "format_instructions": PydanticOutputParser(pydantic_object=ColumnMapping).get_format_instructions()
     })
+    
+    logger.debug(f"LLM returned: order='{result.order_number_column}', cost='{result.total_cost_column}', confidence='{result.confidence}'")
     
     return result
 

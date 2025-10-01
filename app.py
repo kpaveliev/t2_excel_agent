@@ -3,7 +3,7 @@
 import streamlit as st
 import pandas as pd
 from pathlib import Path
-from excel_agent.config import DATA_DIR, OUTPUT_DIR, OPENAI_API_KEY
+from excel_agent.config import DATA_DIR, OUTPUT_DIR, OPENAI_API_KEY, logger
 from excel_agent.graph import process_excel_file
 
 
@@ -82,12 +82,14 @@ def main():
 
 def process_files(excel_files):
     """Process all Excel files and combine results."""
+    logger.info(f"🚀 Starting batch processing of {len(excel_files)} file(s)")
     all_results = []
     
     progress_bar = st.progress(0)
     status_text = st.empty()
     
     for i, file_path in enumerate(excel_files):
+        logger.info(f"Processing file {i+1}/{len(excel_files)}: {file_path.name}")
         status_text.text(f"Processing: {file_path.name}")
         
         with st.expander(f"📄 {file_path.name}", expanded=True):
@@ -135,6 +137,7 @@ def process_files(excel_files):
         
         progress_bar.progress((i + 1) / len(excel_files))
     
+    logger.info("✅ Processing complete!")
     status_text.text("Processing complete!")
     
     # Combine all results
@@ -148,6 +151,7 @@ def process_files(excel_files):
         # Save to CSV
         output_path = OUTPUT_DIR / "combined_results.csv"
         combined_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+        logger.info(f"💾 Saved combined results to: {output_path}")
         st.success(f"💾 Results saved to: `{output_path}`")
         
         # Download button

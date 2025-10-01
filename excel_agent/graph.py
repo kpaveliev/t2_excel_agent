@@ -10,7 +10,7 @@ from excel_agent.excel_reader import (
     get_sheet_preview
 )
 from excel_agent.column_mapper import create_column_mapper, find_relevant_columns
-from excel_agent.config import MODEL_NAME, TEMPERATURE
+from excel_agent.config import MODEL_NAME, TEMPERATURE, logger
 
 
 class ExcelProcessingState(TypedDict):
@@ -26,10 +26,13 @@ class ExcelProcessingState(TypedDict):
 
 def read_file_node(state: ExcelProcessingState) -> ExcelProcessingState:
     """Node to read the Excel file and extract sheets."""
+    logger.info(f"📖 Step 1/3: Reading file '{state['filename']}'...")
     try:
         file_path = state["file_path"]
         sheets_data = read_excel_file(file_path)
         all_columns = extract_all_columns(sheets_data)
+        
+        logger.info(f"✓ Found {len(sheets_data)} sheet(s) with {len(all_columns)} unique columns")
         
         return {
             **state,
@@ -38,6 +41,7 @@ def read_file_node(state: ExcelProcessingState) -> ExcelProcessingState:
             "error": None
         }
     except Exception as e:
+        logger.error(f"✗ Error reading file: {str(e)}")
         return {
             **state,
             "error": f"Error reading file: {str(e)}"
@@ -46,6 +50,7 @@ def read_file_node(state: ExcelProcessingState) -> ExcelProcessingState:
 
 def find_columns_node(state: ExcelProcessingState) -> ExcelProcessingState:
     """Node to identify relevant columns using LLM."""
+    logger.info(f"🔍 Step 2/3: Analyzing structure with LLM...")
     try:
         sheets_data = state["sheets_data"]
         filename = state["filename"]
@@ -58,6 +63,7 @@ def find_columns_node(state: ExcelProcessingState) -> ExcelProcessingState:
         best_confidence = None
         
         for sheet_name, df in sheets_data.items():
+            logger.info(f"  → Analyzing sheet: '{sheet_name}'")
             columns = [col for col in df.columns if not str(col).startswith('Unnamed')]
             if not columns:
                 continue
@@ -73,6 +79,8 @@ def find_columns_node(state: ExcelProcessingState) -> ExcelProcessingState:
                 llm_chain=llm_chain
             )
             
+            logger.info(f"  → Confidence: {mapping.confidence}")
+            
             # Keep the mapping with highest confidence
             if mapping.order_number_column and mapping.total_cost_column:
                 if best_confidence is None or mapping.confidence == "high":
@@ -85,12 +93,20 @@ def find_columns_node(state: ExcelProcessingState) -> ExcelProcessingState:
                     if mapping.confidence == "high":
                         break
         
+        if best_mapping:
+            logger.info(f"✓ Found columns in sheet '{best_mapping['sheet_name']}':")
+            logger.info(f"  → Order: '{best_mapping['order_column']}'")
+            logger.info(f"  → Cost: '{best_mapping['cost_column']}'")
+        else:
+            logger.warning("✗ Could not find relevant columns")
+        
         return {
             **state,
             "column_mapping": best_mapping,
             "error": None if best_mapping else "Could not find relevant columns"
         }
     except Exception as e:
+        logger.error(f"✗ Error finding columns: {str(e)}")
         return {
             **state,
             "error": f"Error finding columns: {str(e)}"
@@ -99,12 +115,14 @@ def find_columns_node(state: ExcelProcessingState) -> ExcelProcessingState:
 
 def extract_data_node(state: ExcelProcessingState) -> ExcelProcessingState:
     """Node to extract data from the identified columns."""
+    logger.info(f"📊 Step 3/3: Extracting data...")
     try:
         if state.get("error"):
             return state
             
         mapping = state["column_mapping"]
         if not mapping:
+            logger.error("✗ No column mapping available")
             return {
                 **state,
                 "error": "No column mapping available"
@@ -126,12 +144,15 @@ def extract_data_node(state: ExcelProcessingState) -> ExcelProcessingState:
         # Remove rows with null values
         extracted_df = extracted_df.dropna()
         
+        logger.info(f"✓ Extracted {len(extracted_df)} rows")
+        
         return {
             **state,
             "extracted_data": extracted_df,
             "error": None
         }
     except Exception as e:
+        logger.error(f"✗ Error extracting data: {str(e)}")
         return {
             **state,
             "error": f"Error extracting data: {str(e)}"

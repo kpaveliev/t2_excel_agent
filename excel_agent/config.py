@@ -1,10 +1,19 @@
 """Configuration settings for the Excel Agent."""
 
 import os
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+logger = logging.getLogger('excel_agent')
 
 # Project paths
 PROJECT_ROOT = Path(__file__).parent.parent
