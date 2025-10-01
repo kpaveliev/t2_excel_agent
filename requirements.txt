@@ -9,6 +9,7 @@ langchain-community==0.2.12
 pandas==2.2.2
 openpyxl==3.1.5
 xlrd==2.0.1
+duckdb==1.1.0
 
 # Environment and utilities
 python-dotenv==1.0.1

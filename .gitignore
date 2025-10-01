@@ -39,5 +39,11 @@ output/
 *.xlsx
 *.xls
 
+# Database files
+*.duckdb
+*.duckdb.wal
+file_state.json
+backups/
+
 # Streamlit
 .streamlit/secrets.toml
