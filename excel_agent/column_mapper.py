@@ -39,6 +39,13 @@ Your task is to identify which columns in the spreadsheet correspond to:
 The column names might be slightly different but have similar meaning.
 Analyze the available columns and the data preview to make the best match.
 
+CRITICAL INSTRUCTIONS:
+- You MUST return the EXACT column name from the "Columns in this sheet" list
+- Do NOT return the target names like "Номер заявки" or "Итоговая Стоимость Заявки"
+- Return the ACTUAL column name that exists in the Excel file
+- Look for similar meanings, not exact text matches
+- Column names might have slight variations, extra spaces, or different wording
+
 {format_instructions}"""),
         ("user", """Here is the information about the Excel file:
 
@@ -47,16 +54,18 @@ File: {filename}
 Available sheets: {sheets}
 
 Sheet: {current_sheet}
-Columns in this sheet: {columns}
 
-Data preview:
+Columns available in this sheet:
+{columns}
+
+Data preview (first few rows):
 {preview}
 
-Please identify which columns correspond to:
-1. Order/Application Number (Номер заявки)
-2. Total Cost (Итоговая Стоимость Заявки)
+Please identify which EXACT column names from the "Columns available" list above correspond to:
+1. Order/Application Number (Номер заявки) - look for columns with IDs, order numbers, application numbers
+2. Total Cost (Итоговая Стоимость Заявки) - look for columns with prices, costs, total amounts
 
-Return the exact column names from the list above.""")
+Return ONLY the exact column names as they appear in the list above, not the target names.""")
     ])
     
     chain = prompt | llm | parser

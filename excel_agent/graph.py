@@ -66,7 +66,10 @@ def find_columns_node(state: ExcelProcessingState) -> ExcelProcessingState:
             logger.info(f"  → Analyzing sheet: '{sheet_name}'")
             columns = [col for col in df.columns if not str(col).startswith('Unnamed')]
             if not columns:
+                logger.warning(f"  → No named columns found in sheet '{sheet_name}', skipping")
                 continue
+            
+            logger.info(f"  → Found {len(columns)} columns: {columns}")
                 
             preview = get_sheet_preview(df, n_rows=10)
             
@@ -79,10 +82,21 @@ def find_columns_node(state: ExcelProcessingState) -> ExcelProcessingState:
                 llm_chain=llm_chain
             )
             
+            logger.info(f"  → LLM returned - Order: '{mapping.order_number_column}', Cost: '{mapping.total_cost_column}'")
             logger.info(f"  → Confidence: {mapping.confidence}")
             
+            # Validate that the suggested columns actually exist
+            valid_mapping = True
+            if mapping.order_number_column and mapping.order_number_column not in columns:
+                logger.warning(f"  ⚠️  Order column '{mapping.order_number_column}' not in available columns!")
+                valid_mapping = False
+                
+            if mapping.total_cost_column and mapping.total_cost_column not in columns:
+                logger.warning(f"  ⚠️  Cost column '{mapping.total_cost_column}' not in available columns!")
+                valid_mapping = False
+            
             # Keep the mapping with highest confidence
-            if mapping.order_number_column and mapping.total_cost_column:
+            if valid_mapping and mapping.order_number_column and mapping.total_cost_column:
                 if best_confidence is None or mapping.confidence == "high":
                     best_mapping = {
                         "sheet_name": sheet_name,
@@ -132,7 +146,32 @@ def extract_data_node(state: ExcelProcessingState) -> ExcelProcessingState:
         order_col = mapping["order_column"]
         cost_col = mapping["cost_column"]
         
+        logger.info(f"  → Extracting from sheet '{sheet_name}'")
+        logger.info(f"  → Order column: '{order_col}'")
+        logger.info(f"  → Cost column: '{cost_col}'")
+        
         df = state["sheets_data"][sheet_name]
+        
+        # Log available columns for debugging
+        available_cols = df.columns.tolist()
+        logger.debug(f"  → Available columns: {available_cols}")
+        
+        # Check if columns exist
+        if order_col not in df.columns:
+            error_msg = f"Column '{order_col}' not found in sheet '{sheet_name}'. Available columns: {available_cols}"
+            logger.error(f"✗ {error_msg}")
+            return {
+                **state,
+                "error": error_msg
+            }
+        
+        if cost_col not in df.columns:
+            error_msg = f"Column '{cost_col}' not found in sheet '{sheet_name}'. Available columns: {available_cols}"
+            logger.error(f"✗ {error_msg}")
+            return {
+                **state,
+                "error": error_msg
+            }
         
         # Extract relevant columns
         extracted_df = pd.DataFrame({
@@ -142,7 +181,12 @@ def extract_data_node(state: ExcelProcessingState) -> ExcelProcessingState:
         })
         
         # Remove rows with null values
+        before_count = len(extracted_df)
         extracted_df = extracted_df.dropna()
+        after_count = len(extracted_df)
+        
+        if before_count > after_count:
+            logger.info(f"  → Removed {before_count - after_count} rows with null values")
         
         logger.info(f"✓ Extracted {len(extracted_df)} rows")
         
@@ -152,7 +196,7 @@ def extract_data_node(state: ExcelProcessingState) -> ExcelProcessingState:
             "error": None
         }
     except Exception as e:
-        logger.error(f"✗ Error extracting data: {str(e)}")
+        logger.error(f"✗ Error extracting data: {str(e)}", exc_info=True)
         return {
             **state,
             "error": f"Error extracting data: {str(e)}"
