@@ -18,6 +18,12 @@ def init_session_state():
         st.session_state.processing_mode = "ask_when_unsure"
     if "pending_message" not in st.session_state:
         st.session_state.pending_message = None
+    if "selected_files" not in st.session_state:
+        st.session_state.selected_files = []
+    if "branch_code" not in st.session_state:
+        st.session_state.branch_code = ""
+    if "contractor_name" not in st.session_state:
+        st.session_state.contractor_name = ""
 
 
 def display_chat_message(role: str, content: str):
@@ -36,11 +42,9 @@ def main():
     
     st.title("💬 Excel Agent Chat Interface")
     st.markdown("""
-    Chat with an AI assistant that can help you process Excel files. The agent can:
-    - 📋 List and explore Excel files
-    - 🔍 Identify relevant columns using AI
-    - 📊 Extract and save data
-    - 💡 Provide insights and guidance
+    Chat with an AI assistant that can help you process Excel files.
+    
+    **👈 Start by configuring files and metadata in the sidebar, then click "Start Processing"**
     """)
     
     # Check API key
@@ -54,8 +58,60 @@ def main():
     # Sidebar
     with st.sidebar:
         st.header("⚙️ Settings")
-        st.info(f"**Data directory:** `{DATA_DIR}`")
-        st.info(f"**Output directory:** `{OUTPUT_DIR}`")
+        
+        st.markdown("---")
+        
+        # File Selection
+        st.subheader("📁 File Selection")
+        
+        # Get available Excel files
+        excel_files = list(DATA_DIR.glob("*.xlsx")) + list(DATA_DIR.glob("*.xls"))
+        
+        if not excel_files:
+            st.warning("⚠️ No Excel files found in data directory")
+            st.info(f"Add files to: `{DATA_DIR}`")
+        else:
+            # Option to select files
+            file_selection_mode = st.radio(
+                "Select files to process:",
+                options=["all", "specific"],
+                format_func=lambda x: "All files" if x == "all" else "Select specific files",
+                horizontal=True
+            )
+            
+            if file_selection_mode == "specific":
+                file_names = [f.name for f in excel_files]
+                selected = st.multiselect(
+                    "Choose files:",
+                    options=file_names,
+                    default=st.session_state.selected_files if st.session_state.selected_files else file_names[:1]
+                )
+                st.session_state.selected_files = selected
+            else:
+                st.session_state.selected_files = [f.name for f in excel_files]
+            
+            st.caption(f"Selected: {len(st.session_state.selected_files)} file(s)")
+        
+        st.markdown("---")
+        
+        # Metadata Input
+        st.subheader("📋 Document Metadata")
+        
+        branch_code = st.text_input(
+            "Код филиала:",
+            value=st.session_state.branch_code,
+            placeholder="Например: BRN001",
+            help="Branch code for the documents"
+        )
+        st.session_state.branch_code = branch_code
+        
+        contractor_name = st.text_input(
+            "Наименование подрядчика:",
+            value=st.session_state.contractor_name,
+            placeholder="Например: ООО «Подрядчик»",
+            help="Contractor/counterparty name"
+        )
+        st.session_state.contractor_name = contractor_name
         
         st.markdown("---")
         
@@ -85,25 +141,51 @@ def main():
         
         # Start Processing button
         if st.button("▶️ Start Processing", use_container_width=True, type="primary"):
-            # Add a special message to trigger processing
-            mode_text = {
-                "fully_automatic": "fully automatic mode",
-                "ask_when_unsure": "careful mode (ask when unsure)",
-                "manual_review": "manual review mode"
-            }[st.session_state.processing_mode]
-            
-            prompt = f"Start processing all Excel files in {mode_text}"
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            st.session_state.pending_message = prompt  # Mark as pending for processing
-            st.rerun()
-        
-        if st.button("📁 List Files", use_container_width=True):
-            excel_files = list(DATA_DIR.glob("*.xlsx")) + list(DATA_DIR.glob("*.xls"))
-            if excel_files:
-                files_text = "\n".join([f"- {f.name}" for f in excel_files])
-                st.code(files_text)
+            # Validate inputs
+            if not st.session_state.selected_files:
+                st.error("⚠️ Please select at least one file")
+            elif not st.session_state.branch_code:
+                st.error("⚠️ Please enter Код филиала")
+            elif not st.session_state.contractor_name:
+                st.error("⚠️ Please enter Наименование подрядчика")
             else:
-                st.warning("No Excel files found")
+                # Add a special message to trigger processing
+                mode_text = {
+                    "fully_automatic": "fully automatic mode",
+                    "ask_when_unsure": "careful mode (ask when unsure)",
+                    "manual_review": "manual review mode"
+                }[st.session_state.processing_mode]
+                
+                # Format file list
+                if len(st.session_state.selected_files) == 1:
+                    files_text = f"file '{st.session_state.selected_files[0]}'"
+                elif len(st.session_state.selected_files) <= 3:
+                    files_text = f"files: {', '.join(st.session_state.selected_files)}"
+                else:
+                    files_text = f"{len(st.session_state.selected_files)} files"
+                
+                prompt = f"""Start processing {files_text} in {mode_text}.
+
+Metadata:
+- Код филиала: {st.session_state.branch_code}
+- Наименование подрядчика: {st.session_state.contractor_name}"""
+                
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                st.session_state.pending_message = prompt  # Mark as pending for processing
+                st.rerun()
+        
+        st.markdown("---")
+        
+        # Show current selection summary
+        if st.session_state.selected_files and st.session_state.branch_code and st.session_state.contractor_name:
+            with st.expander("📋 Current Configuration", expanded=False):
+                st.write(f"**Files:** {len(st.session_state.selected_files)}")
+                for f in st.session_state.selected_files[:5]:
+                    st.text(f"  • {f}")
+                if len(st.session_state.selected_files) > 5:
+                    st.text(f"  ... and {len(st.session_state.selected_files) - 5} more")
+                st.write(f"**Branch:** {st.session_state.branch_code}")
+                st.write(f"**Contractor:** {st.session_state.contractor_name}")
         
         st.markdown("---")
         
@@ -121,21 +203,19 @@ def main():
         st.markdown("---")
         
         # Example prompts
-        st.subheader("💡 Example Prompts")
+        st.subheader("💡 Tips")
         st.markdown("""
-        **Quick Actions:**
-        - *"List all Excel files"*
-        - *"Process all files"*
-        - *"Process report.xlsx"*
+        **Getting Started:**
+        1. Select files to process
+        2. Enter branch code
+        3. Enter contractor name
+        4. Choose processing mode
+        5. Click "▶️ Start Processing"
         
-        **With Caution:**
-        - *"Process files but ask me when unsure"*
-        - *"Process in manual review mode"*
-        - *"Show me what you found and wait for confirmation"*
-        
-        **Information:**
-        - *"What files did you process?"*
-        - *"Show me the last processing results"*
+        **During Processing:**
+        - Agent will extract data automatically
+        - If unsure, agent will ask questions
+        - Results saved to output/ directory
         """)
     
     # Initialize agent (lazy loading)
