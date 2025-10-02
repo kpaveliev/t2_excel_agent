@@ -123,19 +123,19 @@ def main():
         # Example prompts
         st.subheader("💡 Example Prompts")
         st.markdown("""
-        **Exploration:**
+        **Quick Actions:**
         - *"List all Excel files"*
-        - *"Show me the sheets in report.xlsx"*
-        - *"Preview the first sheet"*
-        
-        **Processing:**
-        - *"Process all files automatically"*
+        - *"Process all files"*
         - *"Process report.xlsx"*
-        - *"Process files but ask me when unsure"*
         
-        **Analysis:**
-        - *"Find order numbers and costs in Sheet1"*
-        - *"Which files need review?"*
+        **With Caution:**
+        - *"Process files but ask me when unsure"*
+        - *"Process in manual review mode"*
+        - *"Show me what you found and wait for confirmation"*
+        
+        **Information:**
+        - *"What files did you process?"*
+        - *"Show me the last processing results"*
         """)
     
     # Initialize agent (lazy loading)
@@ -198,9 +198,12 @@ def main():
                         "role": "assistant",
                         "content": error_msg
                     })
+        
+        # Force rerun to show the input field again
+        st.rerun()
     
-    # Chat input
-    elif prompt := st.chat_input("Ask me anything about your Excel files..."):
+    # Chat input - always show it
+    if prompt := st.chat_input("Ask me anything about your Excel files..."):
         # Add user message to chat history
         st.session_state.messages.append({"role": "user", "content": prompt})
         display_chat_message("user", prompt)

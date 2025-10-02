@@ -224,6 +224,13 @@ def run_pipeline(filename: str, require_high_confidence: bool = False) -> str:
             rows_count = len(extracted_data)
             result_msg += f"\n✅ Extracted {rows_count} rows successfully"
             
+            # Save to CSV
+            from pathlib import Path
+            output_filename = f"extracted_{Path(filename).stem}.csv"
+            output_path = OUTPUT_DIR / output_filename
+            extracted_data.to_csv(output_path, index=False, encoding='utf-8-sig')
+            result_msg += f"\n💾 Saved to: {output_path}"
+            
             # Check if confidence is acceptable
             if require_high_confidence and confidence != "high":
                 result_msg += f"\n\n⚠️ Warning: Confidence is '{confidence}' (not 'high'). "
@@ -262,6 +269,7 @@ def run_batch_pipeline(auto_mode: bool = True, require_high_confidence: bool = F
         successful = 0
         needs_review = []
         errors = []
+        all_extracted_data = []  # To combine all results
         
         for file_path in excel_files:
             filename = file_path.name
@@ -279,6 +287,8 @@ def run_batch_pipeline(auto_mode: bool = True, require_high_confidence: bool = F
                 
                 if extracted_data is not None:
                     rows = len(extracted_data)
+                    all_extracted_data.append(extracted_data)  # Collect for combined CSV
+                    
                     if confidence == "high":
                         successful += 1
                         results.append(f"✅ {filename}: {rows} rows (confidence: {confidence})")
@@ -293,14 +303,28 @@ def run_batch_pipeline(auto_mode: bool = True, require_high_confidence: bool = F
                     errors.append(filename)
                     results.append(f"❌ {filename}: No data extracted")
         
+        # Save combined results to CSV
+        if all_extracted_data:
+            combined_df = pd.concat(all_extracted_data, ignore_index=True)
+            output_path = OUTPUT_DIR / "combined_results.csv"
+            combined_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+            total_rows = len(combined_df)
+        else:
+            output_path = None
+            total_rows = 0
+        
         # Build summary
         summary = f"📊 Batch Processing Complete!\n\n"
         summary += f"Total files: {len(excel_files)}\n"
         summary += f"✅ Successful: {successful}\n"
         summary += f"⚠️ Need review: {len(needs_review)}\n"
-        summary += f"❌ Errors: {len(errors)}\n\n"
+        summary += f"❌ Errors: {len(errors)}\n"
         
-        summary += "Details:\n" + "\n".join(results)
+        if output_path:
+            summary += f"\n💾 Combined results saved to: {output_path}\n"
+            summary += f"📊 Total rows extracted: {total_rows}\n"
+        
+        summary += "\nDetails:\n" + "\n".join(results)
         
         if needs_review:
             summary += f"\n\n💡 Files that may need review:\n"
@@ -446,48 +470,53 @@ def create_excel_react_agent():
         api_key=OPENAI_API_KEY
     )
     
-    # Define tools
+    # Define tools - only high-level orchestration tools
     tools = [
-        list_excel_files,
-        get_excel_sheets,
-        get_sheet_columns,
-        preview_sheet_data,
-        find_columns_with_llm,
-        extract_data,
-        run_pipeline,
-        run_batch_pipeline,
-        ask_human
+        list_excel_files,      # To see what files are available
+        run_pipeline,          # To process a single file
+        run_batch_pipeline,    # To process all files at once
+        ask_human             # To ask for human input when uncertain
     ]
     
     # Create system message
-    system_message = """You are an Excel processing assistant with autonomous and interactive capabilities.
+    system_message = """You are an Excel processing assistant with autonomous capabilities.
 
 **Your Tools:**
-1. **Exploration tools**: list_excel_files, get_excel_sheets, get_sheet_columns, preview_sheet_data
-2. **Analysis tools**: find_columns_with_llm
-3. **Processing tools**: 
-   - run_pipeline: Process a single file through the full workflow
-   - run_batch_pipeline: Process ALL files at once
-   - extract_data: Extract specific columns
-4. **Interaction tool**: ask_human - Use this when you need human input or confirmation
+1. **list_excel_files** - List all Excel files in the data directory
+2. **run_pipeline** - Process a SINGLE file through the full workflow (read → analyze → extract)
+3. **run_batch_pipeline** - Process ALL files at once
+4. **ask_human** - Ask for human input or confirmation when uncertain
+
+**The Pipeline:**
+Each pipeline run automatically:
+- Reads the Excel file and all sheets
+- Uses AI to identify order number and cost columns
+- Extracts the data
+- Saves results to CSV
+
+You don't need to do these steps manually - just call run_pipeline or run_batch_pipeline.
 
 **When to use ask_human:**
-- When column detection confidence is low or medium
-- When there are multiple equally valid options
-- When you encounter errors or unclear situations
-- When the user asks you to confirm before proceeding
+- When the pipeline reports low/medium confidence in column detection
+- When there are errors or unclear situations
+- When the user explicitly asks you to confirm before proceeding
+- When you need to make a decision between multiple options
 
 **Processing modes:**
-- **Automatic**: Use run_batch_pipeline(auto_mode=True) to process everything automatically
-- **With review**: Use run_batch_pipeline(auto_mode=False, require_high_confidence=True) and ask_human for uncertain cases
-- **Manual**: Use individual tools step by step
+- **Fully Automatic**: Use run_batch_pipeline(auto_mode=True, require_high_confidence=False)
+  → Processes everything without stopping
+  
+- **Ask When Unsure**: Use run_batch_pipeline(auto_mode=False, require_high_confidence=True)
+  → Stops and uses ask_human for files with low/medium confidence
+  
+- **Manual Review**: Process files one by one with run_pipeline, then ask_human for each result
 
 **Best practices:**
-- Be proactive: suggest running pipelines when the user asks to "process files"
-- Be transparent: explain what you're doing and why
-- Use ask_human when unsure rather than guessing
-- Provide clear summaries of processing results
-- Remember the conversation history and refer back to previous interactions"""
+- When user says "process files" or clicks "Start Processing", use run_batch_pipeline
+- When user mentions a specific file, use run_pipeline for that file
+- Always explain what you're doing and show clear results
+- Use ask_human proactively when confidence is not high
+- Remember the conversation history and context"""
     
     # Create memory saver for conversation persistence
     memory = MemorySaver()
