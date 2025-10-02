@@ -16,6 +16,8 @@ def init_session_state():
         st.session_state.thread_id = DEFAULT_THREAD_ID
     if "processing_mode" not in st.session_state:
         st.session_state.processing_mode = "ask_when_unsure"
+    if "pending_message" not in st.session_state:
+        st.session_state.pending_message = None
 
 
 def display_chat_message(role: str, content: str):
@@ -92,6 +94,7 @@ def main():
             
             prompt = f"Start processing all Excel files in {mode_text}"
             st.session_state.messages.append({"role": "user", "content": prompt})
+            st.session_state.pending_message = prompt  # Mark as pending for processing
             st.rerun()
         
         if st.button("📁 List Files", use_container_width=True):
@@ -150,8 +153,54 @@ def main():
     for message in st.session_state.messages:
         display_chat_message(message["role"], message["content"])
     
+    # Check if there's a pending message from button click
+    if st.session_state.pending_message:
+        prompt = st.session_state.pending_message
+        st.session_state.pending_message = None  # Clear the pending message
+        
+        # Get agent response
+        with st.chat_message("assistant", avatar="🤖"):
+            with st.spinner("Thinking..."):
+                try:
+                    # Invoke the agent with thread_id for memory persistence
+                    config = {"configurable": {"thread_id": st.session_state.thread_id}}
+                    response = st.session_state.agent.invoke(
+                        {"messages": [("user", prompt)]},
+                        config=config
+                    )
+                    
+                    # Extract the last message from the agent
+                    agent_messages = response.get("messages", [])
+                    if agent_messages:
+                        last_message = agent_messages[-1]
+                        
+                        # Handle different message types
+                        if hasattr(last_message, "content"):
+                            assistant_response = last_message.content
+                        else:
+                            assistant_response = str(last_message)
+                    else:
+                        assistant_response = "I apologize, but I couldn't generate a response."
+                    
+                    st.markdown(assistant_response)
+                    
+                    # Add assistant response to chat history
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": assistant_response
+                    })
+                    
+                except Exception as e:
+                    error_msg = f"Error: {str(e)}"
+                    st.error(error_msg)
+                    logger.error(f"Agent invocation error: {str(e)}", exc_info=True)
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": error_msg
+                    })
+    
     # Chat input
-    if prompt := st.chat_input("Ask me anything about your Excel files..."):
+    elif prompt := st.chat_input("Ask me anything about your Excel files..."):
         # Add user message to chat history
         st.session_state.messages.append({"role": "user", "content": prompt})
         display_chat_message("user", prompt)
