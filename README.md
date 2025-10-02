@@ -7,6 +7,8 @@ An intelligent tool for extracting data from multiple Excel files with varying s
 - v0.1 - работающий простой пайплайн
 - v0.2 - описание БД
 - v0.3 - агент с инструментами и чатом
+- v0.4 - не помню (может пайплайн добавил)
+- v0.5 - только с инструментами пайплайн без отдельных файлов
 
 ## 🎯 Purpose
 
@@ -86,15 +88,31 @@ Create a `.env` file in the project root (or copy from `.env.example`):
 cp .env.example .env
 ```
 
-Edit `.env` and add your OpenAI API key:
+Edit `.env` and add your configuration:
 
-```
+```bash
+# OpenAI API Key
 OPENAI_API_KEY=your_openai_api_key_here
+
+# LLM Configuration
 MODEL_NAME=gpt-4o-mini
 TEMPERATURE=0
+
+# DuckDB Configuration (optional, for database storage)
+DUCKDB_PATH=db/excel_data.duckdb
 ```
 
-### 4. Add Excel files
+### 4. (Optional) Setup Database
+
+If you want to store processed data in DuckDB:
+
+```bash
+python3 -m db.create_base_table
+```
+
+See [db/SETUP.md](db/SETUP.md) for detailed database setup instructions.
+
+### 5. Add Excel files
 
 Place your Excel files (`.xlsx` or `.xls`) in the `data/` directory, or upload them through the web interface.
 
