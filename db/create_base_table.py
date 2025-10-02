@@ -13,7 +13,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Get database path from environment
-DB_PATH = os.getenv("DUCKDB_PATH", "data/excel_data.duckdb")
+# IMPORTANT: default must match runtime (db_manager.py) to avoid mismatched files
+DB_PATH = os.getenv("DUCKDB_PATH", "db/excel_data.duckdb")
 
 
 def create_base_table():
@@ -29,14 +30,18 @@ def create_base_table():
     conn = duckdb.connect(str(db_path))
     
     try:
-        # Drop table if exists (for clean slate)
+        # Drop objects if exist (for clean slate)
         conn.execute("DROP TABLE IF EXISTS processed_requests")
+        conn.execute("DROP SEQUENCE IF EXISTS processed_requests_id_seq")
         print("  → Dropped existing table (if any)")
         
+        # Create sequence for auto-increment id
+        conn.execute("CREATE SEQUENCE processed_requests_id_seq START 1")
+
         # Create table with all fields
         create_table_sql = """
         CREATE TABLE processed_requests (
-            id INTEGER PRIMARY KEY,
+            id BIGINT PRIMARY KEY DEFAULT nextval('processed_requests_id_seq'),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             
             -- Имя файла

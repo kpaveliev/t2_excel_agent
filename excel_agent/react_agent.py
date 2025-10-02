@@ -1,4 +1,4 @@
-"""React Agent for Excel processing using LangGraph's create_react_agent."""
+"""React Agent для обработки Excel с использованием LangGraph's create_react_agent."""
 
 from typing import List, Dict, Any, Optional
 from pathlib import Path
@@ -9,273 +9,165 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import MemorySaver
 from excel_agent.config import OPENAI_API_KEY, MODEL_NAME, TEMPERATURE, DATA_DIR, OUTPUT_DIR, logger
-from excel_agent.excel_reader import read_excel_file, extract_all_columns, get_sheet_preview
-from excel_agent.column_mapper import create_column_mapper, find_relevant_columns
 from excel_agent.graph import process_excel_file as run_stategraph_pipeline
+from excel_agent.db_manager import get_db_manager
 
-# Global storage for human interaction (will be managed by Streamlit session state)
+# Глобальное хранилище для взаимодействия с человеком
 _human_question_queue = []
 _human_answer_queue = []
 
 
 @tool
 def list_excel_files() -> str:
-    """List all Excel files in the data directory.
+    """Показать список всех Excel файлов в папке data.
     
     Returns:
-        A formatted string listing all Excel files found.
+        Отформатированная строка со списком найденных Excel файлов.
     """
     try:
         excel_files = list(DATA_DIR.glob("*.xlsx")) + list(DATA_DIR.glob("*.xls"))
         if not excel_files:
-            return f"No Excel files found in {DATA_DIR}"
+            return f"Excel файлы не найдены в {DATA_DIR}"
         
         file_list = "\n".join([f"- {f.name}" for f in excel_files])
-        return f"Found {len(excel_files)} Excel file(s):\n{file_list}"
+        return f"Найдено {len(excel_files)} Excel файл(ов):\n{file_list}"
     except Exception as e:
-        logger.error(f"Error listing Excel files: {str(e)}")
-        return f"Error listing files: {str(e)}"
+        logger.error(f"Ошибка получения списка файлов: {str(e)}")
+        return f"Ошибка получения списка: {str(e)}"
 
 
 @tool
-def get_excel_sheets(filename: str) -> str:
-    """Get all sheet names from an Excel file.
+def run_pipeline(filename: str, branch_code: str, contractor_name: str, require_high_confidence: bool = False) -> str:
+    """Запустить полный пайплайн обработки Excel файла.
+    
+    Этот инструмент выполняет полный StateGraph workflow (чтение → анализ → извлечение → сохранение в БД).
     
     Args:
-        filename: Name of the Excel file (e.g., 'report.xlsx')
-        
+        filename: Имя Excel файла для обработки
+        branch_code: Код филиала
+        contractor_name: Наименование подрядчика
+        require_high_confidence: Если True, предупреждает при уверенности ниже "high"
+    
     Returns:
-        A formatted string with sheet names and basic info.
+        Результаты обработки или запрос на проверку человеком.
     """
     try:
         file_path = DATA_DIR / filename
         if not file_path.exists():
-            return f"File not found: {filename}"
+            return f"❌ Файл не найден: {filename}"
         
-        sheets_data = read_excel_file(file_path)
+        logger.info(f"🚀 Запуск пайплайна для: {filename}")
         
-        result = [f"Excel file '{filename}' contains {len(sheets_data)} sheet(s):\n"]
-        for sheet_name, df in sheets_data.items():
-            result.append(f"- Sheet: '{sheet_name}' - {len(df)} rows, {len(df.columns)} columns")
-        
-        return "\n".join(result)
-    except Exception as e:
-        logger.error(f"Error reading Excel file: {str(e)}")
-        return f"Error reading file: {str(e)}"
-
-
-@tool
-def get_sheet_columns(filename: str, sheet_name: str) -> str:
-    """Get all columns from a specific sheet in an Excel file.
-    
-    Args:
-        filename: Name of the Excel file
-        sheet_name: Name of the sheet
-        
-    Returns:
-        A formatted string with column names.
-    """
-    try:
-        file_path = DATA_DIR / filename
-        if not file_path.exists():
-            return f"File not found: {filename}"
-        
-        sheets_data = read_excel_file(file_path)
-        if sheet_name not in sheets_data:
-            available = ", ".join(sheets_data.keys())
-            return f"Sheet '{sheet_name}' not found. Available sheets: {available}"
-        
-        df = sheets_data[sheet_name]
-        columns = [col for col in df.columns if not str(col).startswith('Unnamed')]
-        
-        return f"Sheet '{sheet_name}' in '{filename}' has {len(columns)} columns:\n" + "\n".join([f"- {col}" for col in columns])
-    except Exception as e:
-        logger.error(f"Error getting sheet columns: {str(e)}")
-        return f"Error: {str(e)}"
-
-
-@tool
-def preview_sheet_data(filename: str, sheet_name: str, num_rows: int = 5) -> str:
-    """Preview data from a specific sheet in an Excel file.
-    
-    Args:
-        filename: Name of the Excel file
-        sheet_name: Name of the sheet
-        num_rows: Number of rows to preview (default: 5)
-        
-    Returns:
-        A formatted string showing the preview data.
-    """
-    try:
-        file_path = DATA_DIR / filename
-        if not file_path.exists():
-            return f"File not found: {filename}"
-        
-        sheets_data = read_excel_file(file_path)
-        if sheet_name not in sheets_data:
-            available = ", ".join(sheets_data.keys())
-            return f"Sheet '{sheet_name}' not found. Available sheets: {available}"
-        
-        df = sheets_data[sheet_name]
-        preview = get_sheet_preview(df, n_rows=num_rows)
-        
-        return f"Preview of sheet '{sheet_name}' (first {num_rows} rows):\n{preview}"
-    except Exception as e:
-        logger.error(f"Error previewing sheet data: {str(e)}")
-        return f"Error: {str(e)}"
-
-
-@tool
-def find_columns_with_llm(filename: str, sheet_name: str) -> str:
-    """Use LLM to automatically identify relevant columns (order number and cost) in a sheet.
-    
-    Args:
-        filename: Name of the Excel file
-        sheet_name: Name of the sheet to analyze
-        
-    Returns:
-        A formatted string with the identified columns and confidence level.
-    """
-    try:
-        file_path = DATA_DIR / filename
-        if not file_path.exists():
-            return f"File not found: {filename}"
-        
-        sheets_data = read_excel_file(file_path)
-        if sheet_name not in sheets_data:
-            available = ", ".join(sheets_data.keys())
-            return f"Sheet '{sheet_name}' not found. Available sheets: {available}"
-        
-        df = sheets_data[sheet_name]
-        columns = [col for col in df.columns if not str(col).startswith('Unnamed')]
-        
-        if not columns:
-            return f"No named columns found in sheet '{sheet_name}'"
-        
-        # Create LLM chain
-        llm_chain = create_column_mapper(MODEL_NAME, TEMPERATURE)
-        
-        # Get preview
-        preview = get_sheet_preview(df, n_rows=10)
-        
-        # Find columns
-        mapping = find_relevant_columns(
-            filename=filename,
-            sheets=list(sheets_data.keys()),
-            current_sheet=sheet_name,
-            columns=columns,
-            preview=preview,
-            llm_chain=llm_chain
+        # Запускаем существующий StateGraph workflow с метаданными
+        result = run_stategraph_pipeline(
+            file_path=file_path,
+            branch_code=branch_code,
+            contractor_name=contractor_name
         )
         
-        result = f"LLM Analysis Results for '{filename}' - Sheet '{sheet_name}':\n"
-        result += f"- Order Number Column: {mapping.order_number_column or 'Not found'}\n"
-        result += f"- Total Cost Column: {mapping.total_cost_column or 'Not found'}\n"
-        result += f"- Confidence: {mapping.confidence}\n"
-        
-        if mapping.reasoning:
-            result += f"- Reasoning: {mapping.reasoning}"
-        
-        return result
-    except Exception as e:
-        logger.error(f"Error finding columns with LLM: {str(e)}")
-        return f"Error: {str(e)}"
-
-
-@tool
-def run_pipeline(filename: str, require_high_confidence: bool = False) -> str:
-    """Run the full Excel processing pipeline on a file.
-    
-    This tool executes the complete StateGraph workflow (read → find columns → extract data).
-    
-    Args:
-        filename: Name of the Excel file to process
-        require_high_confidence: If True, only processes files with high confidence.
-                                 If False, processes all files automatically.
-    
-    Returns:
-        Processing results or a request for human review.
-    """
-    try:
-        file_path = DATA_DIR / filename
-        if not file_path.exists():
-            return f"❌ File not found: {filename}"
-        
-        logger.info(f"🚀 Running pipeline for: {filename}")
-        
-        # Run the existing StateGraph workflow
-        result = run_stategraph_pipeline(file_path)
-        
         if result.get("error"):
-            return f"❌ Error processing {filename}: {result['error']}"
+            return f"❌ Ошибка обработки {filename}: {result['error']}"
         
         mapping = result.get("column_mapping", {})
         confidence = mapping.get("confidence", "low")
         extracted_data = result.get("extracted_data")
         
-        # Build result message
-        result_msg = f"📊 Processing Results for '{filename}':\n\n"
-        result_msg += f"Sheet: {mapping.get('sheet_name', 'N/A')}\n"
-        result_msg += f"Order Column: {mapping.get('order_column', 'N/A')}\n"
-        result_msg += f"Cost Column: {mapping.get('cost_column', 'N/A')}\n"
-        result_msg += f"Confidence: {confidence}\n"
+        # Строим сообщение с результатами
+        result_msg = f"📊 Результаты обработки '{filename}':\n\n"
+        result_msg += f"Лист: {mapping.get('sheet_name', 'Н/Д')}\n"
+        result_msg += f"Уверенность: {confidence}\n"
         
-        if extracted_data is not None:
+        if extracted_data is not None and len(extracted_data) > 0:
             rows_count = len(extracted_data)
-            result_msg += f"\n✅ Extracted {rows_count} rows successfully"
+            result_msg += f"\n✅ Извлечено {rows_count} строк"
             
-            # Save to CSV
-            from pathlib import Path
-            output_filename = f"extracted_{Path(filename).stem}.csv"
-            output_path = OUTPUT_DIR / output_filename
-            extracted_data.to_csv(output_path, index=False, encoding='utf-8-sig')
-            result_msg += f"\n💾 Saved to: {output_path}"
+            # Сохраняем в БД
+            try:
+                db = get_db_manager()
+                inserted = db.save_processed_data(
+                    filename=filename,
+                    data=extracted_data,
+                    branch_code=branch_code,
+                    contractor_name=contractor_name,
+                    column_mapping=mapping
+                )
+                result_msg += f"\n💾 Сохранено {inserted} записей в базу данных"
+            except Exception as db_error:
+                logger.error(f"Ошибка сохранения в БД: {str(db_error)}")
+                result_msg += f"\n⚠️ Предупреждение: Ошибка сохранения в БД: {str(db_error)}"
             
-            # Check if confidence is acceptable
+            # Показываем какие поля извлечены
+            found_fields = [k for k, v in mapping.items() 
+                           if v and k not in ['sheet_name', 'confidence', 'reasoning']]
+            result_msg += f"\n\n📋 Извлечено полей: {len(found_fields)}"
+            if found_fields:
+                for field in found_fields[:5]:
+                    result_msg += f"\n  • {field}"
+                if len(found_fields) > 5:
+                    result_msg += f"\n  ... и еще {len(found_fields) - 5}"
+            
+            # Проверяем уверенность
             if require_high_confidence and confidence != "high":
-                result_msg += f"\n\n⚠️ Warning: Confidence is '{confidence}' (not 'high'). "
-                result_msg += "You may want to review the column selection using ask_human tool."
+                result_msg += f"\n\n⚠️ Предупреждение: Уверенность '{confidence}' (не 'high'). "
+                result_msg += "Возможно стоит проверить результаты."
         else:
-            result_msg += "\n⚠️ No data extracted"
+            result_msg += "\n⚠️ Данные не извлечены"
         
         return result_msg
         
     except Exception as e:
-        logger.error(f"Error in run_pipeline: {str(e)}")
-        return f"❌ Pipeline error: {str(e)}"
+        logger.error(f"Ошибка в run_pipeline: {str(e)}")
+        return f"❌ Ошибка пайплайна: {str(e)}"
 
 
 @tool
-def run_batch_pipeline(auto_mode: bool = True, require_high_confidence: bool = False) -> str:
-    """Run the pipeline on ALL Excel files in the data directory.
+def run_batch_pipeline(
+    filenames: Optional[List[str]] = None,
+    branch_code: str = "",
+    contractor_name: str = "",
+    auto_mode: bool = True,
+    require_high_confidence: bool = False
+) -> str:
+    """Запустить пайплайн для нескольких Excel файлов.
     
     Args:
-        auto_mode: If True, processes all files automatically.
-                   If False, stops for review when confidence is not high.
-        require_high_confidence: If True, reports files with non-high confidence.
+        filenames: Список имен файлов для обработки. Если None, обрабатывает все файлы.
+        branch_code: Код филиала
+        contractor_name: Наименование подрядчика
+        auto_mode: Если True, обрабатывает все файлы автоматически.
+                   Если False, останавливается для проверки при низкой уверенности.
+        require_high_confidence: Если True, помечает файлы с не-высокой уверенностью.
     
     Returns:
-        Summary of processing results for all files.
+        Сводка результатов обработки всех файлов.
     """
     try:
-        excel_files = list(DATA_DIR.glob("*.xlsx")) + list(DATA_DIR.glob("*.xls"))
+        # Получаем список файлов
+        if filenames:
+            excel_files = [DATA_DIR / f for f in filenames if (DATA_DIR / f).exists()]
+        else:
+            excel_files = list(DATA_DIR.glob("*.xlsx")) + list(DATA_DIR.glob("*.xls"))
         
         if not excel_files:
-            return "❌ No Excel files found in data directory"
+            return "❌ Excel файлы не найдены"
         
-        logger.info(f"🚀 Starting batch processing of {len(excel_files)} files")
+        logger.info(f"🚀 Начало пакетной обработки {len(excel_files)} файл(ов)")
         
         results = []
         successful = 0
         needs_review = []
         errors = []
-        all_extracted_data = []  # To combine all results
+        total_rows = 0
         
         for file_path in excel_files:
             filename = file_path.name
-            logger.info(f"Processing: {filename}")
+            logger.info(f"Обработка: {filename}")
             
-            result = run_stategraph_pipeline(file_path)
+            result = run_stategraph_pipeline(
+                file_path=file_path,
+                branch_code=branch_code,
+                contractor_name=contractor_name
+            )
             
             if result.get("error"):
                 errors.append(filename)
@@ -285,84 +177,87 @@ def run_batch_pipeline(auto_mode: bool = True, require_high_confidence: bool = F
                 confidence = mapping.get("confidence", "low")
                 extracted_data = result.get("extracted_data")
                 
-                if extracted_data is not None:
+                if extracted_data is not None and len(extracted_data) > 0:
                     rows = len(extracted_data)
-                    all_extracted_data.append(extracted_data)  # Collect for combined CSV
+                    
+                    # Сохраняем в БД
+                    try:
+                        db = get_db_manager()
+                        inserted = db.save_processed_data(
+                            filename=filename,
+                            data=extracted_data,
+                            branch_code=branch_code,
+                            contractor_name=contractor_name,
+                            column_mapping=mapping
+                        )
+                        total_rows += inserted
+                    except Exception as db_error:
+                        logger.error(f"Ошибка сохранения в БД для {filename}: {str(db_error)}")
+                        errors.append(filename)
+                        results.append(f"❌ {filename}: Ошибка сохранения в БД")
+                        continue
                     
                     if confidence == "high":
                         successful += 1
-                        results.append(f"✅ {filename}: {rows} rows (confidence: {confidence})")
+                        results.append(f"✅ {filename}: {rows} строк (уверенность: {confidence})")
                     else:
                         if require_high_confidence or not auto_mode:
                             needs_review.append(filename)
-                            results.append(f"⚠️ {filename}: {rows} rows (confidence: {confidence}) - may need review")
+                            results.append(f"⚠️ {filename}: {rows} строк (уверенность: {confidence}) - может требовать проверки")
                         else:
                             successful += 1
-                            results.append(f"✅ {filename}: {rows} rows (confidence: {confidence})")
+                            results.append(f"✅ {filename}: {rows} строк (уверенность: {confidence})")
                 else:
                     errors.append(filename)
-                    results.append(f"❌ {filename}: No data extracted")
+                    results.append(f"❌ {filename}: Данные не извлечены")
         
-        # Save combined results to CSV
-        if all_extracted_data:
-            combined_df = pd.concat(all_extracted_data, ignore_index=True)
-            output_path = OUTPUT_DIR / "combined_results.csv"
-            combined_df.to_csv(output_path, index=False, encoding='utf-8-sig')
-            total_rows = len(combined_df)
-        else:
-            output_path = None
-            total_rows = 0
+        # Строим сводку
+        summary = f"📊 Пакетная обработка завершена!\n\n"
+        summary += f"Всего файлов: {len(excel_files)}\n"
+        summary += f"✅ Успешно: {successful}\n"
+        summary += f"⚠️ Требуют проверки: {len(needs_review)}\n"
+        summary += f"❌ Ошибки: {len(errors)}\n"
+        summary += f"💾 Всего сохранено записей в БД: {total_rows}\n"
         
-        # Build summary
-        summary = f"📊 Batch Processing Complete!\n\n"
-        summary += f"Total files: {len(excel_files)}\n"
-        summary += f"✅ Successful: {successful}\n"
-        summary += f"⚠️ Need review: {len(needs_review)}\n"
-        summary += f"❌ Errors: {len(errors)}\n"
-        
-        if output_path:
-            summary += f"\n💾 Combined results saved to: {output_path}\n"
-            summary += f"📊 Total rows extracted: {total_rows}\n"
-        
-        summary += "\nDetails:\n" + "\n".join(results)
+        summary += "\nДетали:\n" + "\n".join(results)
         
         if needs_review:
-            summary += f"\n\n💡 Files that may need review:\n"
+            summary += f"\n\n💡 Файлы которые могут требовать проверки:\n"
             summary += "\n".join([f"  - {f}" for f in needs_review])
-            summary += "\n\nUse 'ask_human' tool to get confirmation for these files."
+            summary += "\n\nИспользуй инструмент 'ask_human' для получения подтверждения по этим файлам."
         
         return summary
         
     except Exception as e:
-        logger.error(f"Error in batch pipeline: {str(e)}")
-        return f"❌ Batch processing error: {str(e)}"
+        logger.error(f"Ошибка в пакетной обработке: {str(e)}")
+        return f"❌ Ошибка пакетной обработки: {str(e)}"
 
 
 @tool
 def ask_human(question: str, options: Optional[List[str]] = None, context: Optional[str] = None) -> str:
-    """Ask a question to the human user and wait for their response.
+    """Задать вопрос пользователю и дождаться ответа.
     
-    This tool pauses agent execution and presents a question to the user in the chat interface.
-    The agent will wait for the user's response before continuing.
+    Этот инструмент приостанавливает выполнение агента и представляет вопрос пользователю в чат интерфейсе.
+    Агент будет ждать ответа пользователя перед продолжением.
     
     Args:
-        question: The question to ask the human
-        options: Optional list of suggested response options (e.g., ["Option 1", "Option 2"])
-        context: Optional additional context or information to help the human decide
+        question: Вопрос для пользователя
+        options: Опциональный список предлагаемых вариантов ответа
+        context: Опциональный дополнительный контекст для помощи в принятии решения
     
     Returns:
-        The human's response as a string
+        Ответ пользователя в виде строки
     
-    Example:
+    Пример:
         ask_human(
-            question="Which column should I use for order numbers?",
+            question="Какую колонку использовать для номеров заявок?",
             options=["Номер заявки", "№ заявки", "Order Number"],
-            context="File: report.xlsx, Sheet: Main"
+            context="Файл: report.xlsx, Лист: Основной"
         )
     """
     global _human_question_queue, _human_answer_queue
     
-    # Format the question
+    # Форматируем вопрос
     formatted_question = {
         "question": question,
         "options": options or [],
@@ -370,161 +265,98 @@ def ask_human(question: str, options: Optional[List[str]] = None, context: Optio
         "timestamp": time.time()
     }
     
-    # Add to question queue
+    # Добавляем в очередь вопросов
     _human_question_queue.append(formatted_question)
     
-    logger.info(f"❓ Asking human: {question}")
+    logger.info(f"❓ Задан вопрос человеку: {question}")
     
-    # Create a marker message that Streamlit will detect
-    marker = "🤔 **[WAITING FOR HUMAN RESPONSE]**"
+    # Создаем маркер который Streamlit обнаружит
+    marker = "🤔 **[ОЖИДАНИЕ ОТВЕТА ОТ ПОЛЬЗОВАТЕЛЯ]**"
     
     if context:
-        marker += f"\n\n**Context:** {context}"
+        marker += f"\n\n**Контекст:** {context}"
     
-    marker += f"\n\n**Question:** {question}"
+    marker += f"\n\n**Вопрос:** {question}"
     
     if options:
-        marker += f"\n\n**Options:**\n"
+        marker += f"\n\n**Варианты:**\n"
         for i, opt in enumerate(options, 1):
             marker += f"{i}. {opt}\n"
     
-    marker += "\n\n*Please provide your answer below...*"
+    marker += "\n\n*Пожалуйста, предоставьте ваш ответ ниже...*"
     
-    # Return marker - Streamlit will handle the actual waiting
+    # Возвращаем маркер - Streamlit обработает ожидание
     return marker
 
 
-@tool
-def extract_data(filename: str, sheet_name: str, order_column: str, cost_column: str) -> str:
-    """Extract data from specific columns in a sheet.
-    
-    Args:
-        filename: Name of the Excel file
-        sheet_name: Name of the sheet
-        order_column: Name of the order number column
-        cost_column: Name of the cost column
-        
-    Returns:
-        A summary of extracted data and path to saved CSV.
-    """
-    try:
-        file_path = DATA_DIR / filename
-        if not file_path.exists():
-            return f"File not found: {filename}"
-        
-        sheets_data = read_excel_file(file_path)
-        if sheet_name not in sheets_data:
-            available = ", ".join(sheets_data.keys())
-            return f"Sheet '{sheet_name}' not found. Available sheets: {available}"
-        
-        df = sheets_data[sheet_name]
-        
-        # Check if columns exist
-        if order_column not in df.columns:
-            available = ", ".join(df.columns)
-            return f"Column '{order_column}' not found. Available columns: {available}"
-        
-        if cost_column not in df.columns:
-            available = ", ".join(df.columns)
-            return f"Column '{cost_column}' not found. Available columns: {available}"
-        
-        # Extract relevant columns
-        extracted_df = pd.DataFrame({
-            "Filename": filename,
-            "Номер заявки": df[order_column],
-            "Итоговая Стоимость Заявки": df[cost_column]
-        })
-        
-        # Remove rows with null values
-        before_count = len(extracted_df)
-        extracted_df = extracted_df.dropna()
-        after_count = len(extracted_df)
-        
-        # Save to CSV
-        output_filename = f"extracted_{Path(filename).stem}_{sheet_name}.csv"
-        output_path = OUTPUT_DIR / output_filename
-        extracted_df.to_csv(output_path, index=False, encoding='utf-8-sig')
-        
-        result = f"Successfully extracted {after_count} rows from '{filename}' - Sheet '{sheet_name}'\n"
-        if before_count > after_count:
-            result += f"(Removed {before_count - after_count} rows with null values)\n"
-        result += f"\nData saved to: {output_path}\n"
-        result += f"\nFirst few rows:\n{extracted_df.head(3).to_string()}"
-        
-        return result
-    except Exception as e:
-        logger.error(f"Error extracting data: {str(e)}")
-        return f"Error: {str(e)}"
-
-
 def create_excel_react_agent():
-    """Create a React agent with Excel processing tools and memory.
+    """Создать React агента с инструментами для обработки Excel и памятью.
     
     Returns:
-        A compiled LangGraph React agent with memory persistence.
+        Скомпилированный LangGraph React агент с персистентной памятью.
     """
-    # Initialize LLM
+    # Инициализируем LLM
     llm = ChatOpenAI(
         model=MODEL_NAME,
         temperature=TEMPERATURE,
         api_key=OPENAI_API_KEY
     )
     
-    # Define tools - only high-level orchestration tools
+    # Определяем инструменты - только высокоуровневые инструменты оркестрации
     tools = [
-        list_excel_files,      # To see what files are available
-        run_pipeline,          # To process a single file
-        run_batch_pipeline,    # To process all files at once
-        ask_human             # To ask for human input when uncertain
+        list_excel_files,      # Показать список файлов
+        run_pipeline,          # Обработать один файл
+        run_batch_pipeline,    # Обработать все файлы сразу
+        ask_human             # Спросить человека при неопределенности
     ]
     
-    # Create system message
-    system_message = """You are an Excel processing assistant with autonomous capabilities.
+    # Создаем системное сообщение
+    system_message = """Ты ассистент по обработке Excel файлов с функциями автономной обработки.
 
-**Your Tools:**
-1. **list_excel_files** - List all Excel files in the data directory
-2. **run_pipeline** - Process a SINGLE file through the full workflow (read → analyze → extract)
-3. **run_batch_pipeline** - Process ALL files at once
-4. **ask_human** - Ask for human input or confirmation when uncertain
+**Твои инструменты:**
+1. **list_excel_files** - Показать список всех Excel файлов в директории
+2. **run_pipeline** - Обработать ОДИН файл через полный workflow (чтение → анализ → извлечение)
+3. **run_batch_pipeline** - Обработать НЕСКОЛЬКО или ВСЕ файлы сразу
+4. **ask_human** - Задать вопрос пользователю при неопределенности или для подтверждения
 
-**The Pipeline:**
-Each pipeline run automatically:
-- Reads the Excel file and all sheets
-- Uses AI to identify order number and cost columns
-- Extracts the data
-- Saves results to CSV
+**Пайплайн автоматически:**
+- Читает Excel файл и все листы
+- Использует AI для поиска 13+ полей данных (номер заявки, стоимости, даты, работы и т.д.)
+- Извлекает данные
+- Сохраняет результаты в базу данных DuckDB
 
-You don't need to do these steps manually - just call run_pipeline or run_batch_pipeline.
+Тебе НЕ нужно выполнять эти шаги вручную - просто вызывай run_pipeline или run_batch_pipeline.
 
-**When to use ask_human:**
-- When the pipeline reports low/medium confidence in column detection
-- When there are errors or unclear situations
-- When the user explicitly asks you to confirm before proceeding
-- When you need to make a decision between multiple options
+**Когда использовать ask_human:**
+- Когда пайплайн сообщает о низкой/средней уверенности в определении колонок
+- При ошибках или неясных ситуациях
+- Когда пользователь явно просит подтверждения перед продолжением
+- Когда нужно выбрать между несколькими вариантами
 
-**Processing modes:**
-- **Fully Automatic**: Use run_batch_pipeline(auto_mode=True, require_high_confidence=False)
-  → Processes everything without stopping
+**Режимы обработки:**
+- **Полностью автоматический**: run_batch_pipeline(auto_mode=True, require_high_confidence=False)
+  → Обрабатывает всё без остановок
   
-- **Ask When Unsure**: Use run_batch_pipeline(auto_mode=False, require_high_confidence=True)
-  → Stops and uses ask_human for files with low/medium confidence
+- **С осторожностью**: run_batch_pipeline(auto_mode=False, require_high_confidence=True)
+  → Останавливается и использует ask_human для файлов с низкой уверенностью
   
-- **Manual Review**: Process files one by one with run_pipeline, then ask_human for each result
+- **Ручная проверка**: Обрабатывай файлы по одному с run_pipeline, затем ask_human для каждого результата
 
-**Best practices:**
-- When user says "process files" or clicks "Start Processing", use run_batch_pipeline
-- When user mentions a specific file, use run_pipeline for that file
-- Always explain what you're doing and show clear results
-- Use ask_human proactively when confidence is not high
-- Remember the conversation history and context"""
+**Лучшие практики:**
+- Когда пользователь говорит "обработай файлы" или нажимает "Начать обработку", используй run_batch_pipeline
+- Для конкретного файла используй run_pipeline
+- Всегда объясняй что делаешь и показывай понятные результаты
+- Используй ask_human проактивно при сомнениях, не угадывай
+- Помни историю разговора и контекст
+- Отвечай на русском языке"""
     
-    # Create memory saver for conversation persistence
+    # Создаем memory saver для персистентности разговора
     memory = MemorySaver()
     
-    # Create the agent with checkpointing
+    # Создаем агента с чекпоинтингом
     agent = create_react_agent(llm, tools, state_modifier=system_message, checkpointer=memory)
     
-    logger.info("✓ React Agent created successfully with memory")
+    logger.info("✓ React Agent создан успешно с памятью")
     return agent
 
 
@@ -533,9 +365,8 @@ _agent_instance = None
 
 
 def get_react_agent():
-    """Get or create the React agent instance."""
+    """Получить или создать экземпляр React агента."""
     global _agent_instance
     if _agent_instance is None:
         _agent_instance = create_excel_react_agent()
     return _agent_instance
-
