@@ -37,3 +37,6 @@ TARGET_COLUMNS = {
 MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0"))
 
+# Chat configuration
+DEFAULT_THREAD_ID = "excel_agent_chat_session"
+

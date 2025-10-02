@@ -2,6 +2,10 @@
 
 An intelligent tool for extracting data from multiple Excel files with varying structures using AI.
 
+## Version history
+
+- 
+
 ## 🎯 Purpose
 
 Process multiple Excel files that have similar information but different structures:
@@ -19,14 +23,28 @@ The tool extracts the following columns from each file:
 
 The application uses:
 - **Streamlit** for the web interface
-- **LangGraph** for workflow orchestration
+- **LangGraph** for workflow orchestration (StateGraph + React Agent)
 - **LangChain + OpenAI** for intelligent column detection
 - **Pandas** for data processing
 
-### Workflow Nodes:
+### Two Agent Implementations:
+
+#### 1. Batch Processing (StateGraph Workflow)
+Linear workflow with fixed steps:
 1. **read_file** - Reads Excel files and extracts all sheets
 2. **find_columns** - Uses LLM to identify relevant columns despite naming variations
 3. **extract_data** - Extracts and normalizes data from identified columns
+
+#### 2. Chat Interface (React Agent)
+Dynamic agent with 6 tools that can be called as needed:
+- `list_excel_files` - List all Excel files
+- `get_excel_sheets` - Get sheets from a file
+- `get_sheet_columns` - Get columns from a sheet
+- `preview_sheet_data` - Preview data
+- `find_columns_with_llm` - AI-powered column identification
+- `extract_data` - Extract and save data
+
+The React Agent uses the ReAct (Reasoning + Acting) pattern to dynamically select and execute tools based on user requests.
 
 ## 🚀 Setup
 
@@ -68,7 +86,14 @@ Place your Excel files (`.xlsx` or `.xls`) in the `data/` directory, or upload t
 
 ## 💻 Usage
 
-### Start the application
+### Two Interfaces Available
+
+This project now has **two ways** to interact with the Excel Agent:
+
+1. **Batch Processing Interface** (`app.py`) - Process multiple files at once
+2. **Chat Interface** (`chat_app.py`) - **NEW!** Conversational AI assistant
+
+### Option 1: Batch Processing Interface
 
 ```bash
 streamlit run app.py
@@ -76,7 +101,7 @@ streamlit run app.py
 
 The app will open in your browser at `http://localhost:8501`
 
-### Using the web interface
+#### Using the batch interface
 
 1. **Upload Files** (optional):
    - Go to the "Upload Files" tab
@@ -89,6 +114,49 @@ The app will open in your browser at `http://localhost:8501`
    - Click "Process All Files"
    - View the results for each file
    - Download the combined CSV output
+
+### Option 2: Chat Interface (NEW! ✨)
+
+```bash
+streamlit run chat_app.py
+```
+
+The chat interface will open at `http://localhost:8501` (or 8502 if running both)
+
+#### Using the chat interface
+
+Chat naturally with an AI assistant that can:
+- 📋 List and explore Excel files
+- 🔍 Identify relevant columns using AI
+- 📊 Extract and save data interactively
+- 💡 Provide guidance and insights
+
+**Example conversation:**
+```
+You: List all Excel files
+Agent: Found 3 Excel files: [shows list]
+
+You: Show me the sheets in report.xlsx
+Agent: [displays sheets with row counts]
+
+You: Find order numbers and costs in Sheet1
+Agent: [uses AI to identify columns]
+
+You: Extract that data
+Agent: [extracts and saves to CSV]
+```
+
+See [CHAT_INTERFACE_README.md](CHAT_INTERFACE_README.md) for detailed documentation.
+
+### Running Both Interfaces Simultaneously
+
+```bash
+# Terminal 1: Batch processing
+streamlit run app.py --server.port 8501
+
+# Terminal 2: Chat interface
+streamlit run chat_app.py --server.port 8502
+```
 
 ### Output
 
@@ -107,15 +175,18 @@ excel_agent/
 │   ├── config.py         # Configuration and settings
 │   ├── excel_reader.py   # Excel file reading utilities
 │   ├── column_mapper.py  # LLM-based column mapping
-│   └── graph.py          # LangGraph workflow
+│   ├── graph.py          # StateGraph workflow (batch processing)
+│   └── react_agent.py    # React Agent with tools (chat interface) ✨ NEW
 ├── tests/                # Test files
 ├── data/                 # Input Excel files (created automatically)
 ├── output/               # Output CSV files (created automatically)
-├── app.py                # Streamlit application
+├── app.py                # Streamlit batch processing app
+├── chat_app.py           # Streamlit chat interface ✨ NEW
 ├── requirements.txt      # Python dependencies
 ├── .env                  # Environment variables (create this)
 ├── .env.example          # Example environment file
-└── README.md             # This file
+├── README.md             # This file
+└── CHAT_INTERFACE_README.md  # Chat interface documentation ✨ NEW
 ```
 
 ## 🛠️ Development
