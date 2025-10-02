@@ -14,6 +14,8 @@ def init_session_state():
         st.session_state.agent = None
     if "thread_id" not in st.session_state:
         st.session_state.thread_id = DEFAULT_THREAD_ID
+    if "processing_mode" not in st.session_state:
+        st.session_state.processing_mode = "ask_when_unsure"
 
 
 def display_chat_message(role: str, content: str):
@@ -55,9 +57,44 @@ def main():
         
         st.markdown("---")
         
+        # Processing Mode Selection
+        st.subheader("🎛️ Processing Mode")
+        mode = st.radio(
+            "Select mode:",
+            options=["fully_automatic", "ask_when_unsure", "manual_review"],
+            format_func=lambda x: {
+                "fully_automatic": "🚀 Fully Automatic",
+                "ask_when_unsure": "🤔 Ask When Unsure",
+                "manual_review": "👁️ Manual Review"
+            }[x],
+            index=1,  # Default to "ask_when_unsure"
+            help="""
+            **Fully Automatic**: Process everything automatically
+            **Ask When Unsure**: Stop for review when confidence is not high
+            **Manual Review**: Review each file before processing
+            """
+        )
+        st.session_state.processing_mode = mode
+        
+        st.markdown("---")
+        
         # Quick actions
-        st.subheader("Quick Actions")
-        if st.button("📁 List files", use_container_width=True):
+        st.subheader("🚀 Quick Actions")
+        
+        # Start Processing button
+        if st.button("▶️ Start Processing", use_container_width=True, type="primary"):
+            # Add a special message to trigger processing
+            mode_text = {
+                "fully_automatic": "fully automatic mode",
+                "ask_when_unsure": "careful mode (ask when unsure)",
+                "manual_review": "manual review mode"
+            }[st.session_state.processing_mode]
+            
+            prompt = f"Start processing all Excel files in {mode_text}"
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            st.rerun()
+        
+        if st.button("📁 List Files", use_container_width=True):
             excel_files = list(DATA_DIR.glob("*.xlsx")) + list(DATA_DIR.glob("*.xls"))
             if excel_files:
                 files_text = "\n".join([f"- {f.name}" for f in excel_files])
@@ -83,11 +120,19 @@ def main():
         # Example prompts
         st.subheader("💡 Example Prompts")
         st.markdown("""
+        **Exploration:**
         - *"List all Excel files"*
         - *"Show me the sheets in report.xlsx"*
-        - *"Preview the first sheet of my file"*
+        - *"Preview the first sheet"*
+        
+        **Processing:**
+        - *"Process all files automatically"*
+        - *"Process report.xlsx"*
+        - *"Process files but ask me when unsure"*
+        
+        **Analysis:**
         - *"Find order numbers and costs in Sheet1"*
-        - *"Extract data from the file"*
+        - *"Which files need review?"*
         """)
     
     # Initialize agent (lazy loading)

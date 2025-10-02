@@ -37,16 +37,28 @@ Linear workflow with fixed steps:
 2. **find_columns** - Uses LLM to identify relevant columns despite naming variations
 3. **extract_data** - Extracts and normalizes data from identified columns
 
-#### 2. Chat Interface (React Agent)
-Dynamic agent with 6 tools that can be called as needed:
+#### 2. Chat Interface (React Agent with Autonomous Processing)
+Dynamic agent with 9 tools that can work autonomously or interactively:
+
+**Autonomous tools:**
+- `run_pipeline` - Process a single file through full workflow
+- `run_batch_pipeline` - Process ALL files at once
+- `ask_human` - Ask for human input when uncertain
+
+**Exploration tools:**
 - `list_excel_files` - List all Excel files
 - `get_excel_sheets` - Get sheets from a file
 - `get_sheet_columns` - Get columns from a sheet
 - `preview_sheet_data` - Preview data
+
+**Analysis tools:**
 - `find_columns_with_llm` - AI-powered column identification
 - `extract_data` - Extract and save data
 
-The React Agent uses the ReAct (Reasoning + Acting) pattern to dynamically select and execute tools based on user requests.
+The React Agent uses the ReAct (Reasoning + Acting) pattern to:
+- Autonomously process files using the StateGraph workflow
+- Dynamically select tools based on context
+- Ask humans for confirmation when uncertain
 
 ## 🚀 Setup
 
@@ -117,7 +129,7 @@ The app will open in your browser at `http://localhost:8501`
    - View the results for each file
    - Download the combined CSV output
 
-### Option 2: Chat Interface (NEW! ✨)
+### Option 2: Chat Interface with Autonomous Agent (NEW! ✨)
 
 ```bash
 streamlit run chat_app.py
@@ -127,28 +139,57 @@ The chat interface will open at `http://localhost:8501` (or 8502 if running both
 
 #### Using the chat interface
 
-Chat naturally with an AI assistant that can:
+Chat naturally with an AI assistant that can **autonomously process files** and **ask for help when needed**:
+
+**🤖 Autonomous capabilities:**
+- 🚀 Process ALL files automatically with one click
+- 🤔 Stop and ask when uncertain about column detection
+- 📊 Run the full pipeline (read → analyze → extract)
+- 🎛️ Three processing modes: Fully Automatic, Ask When Unsure, Manual Review
+
+**🔍 Interactive capabilities:**
 - 📋 List and explore Excel files
-- 🔍 Identify relevant columns using AI
-- 📊 Extract and save data interactively
+- 🔎 Identify relevant columns using AI
+- 💾 Extract and save data
 - 💡 Provide guidance and insights
 
-**Example conversation:**
+**Example - Autonomous processing:**
+```
+You: *clicks "Start Processing" button*
+
+Agent: Starting batch processing in careful mode...
+       ✅ file1.xlsx - processed (45 rows, high confidence)
+       ✅ file2.xlsx - processed (32 rows, high confidence)
+       ⚠️  file3.xlsx - uncertain (medium confidence)
+       
+       🤔 For file3.xlsx I found two possible columns for order numbers:
+          1. "Номер заявки"
+          2. "№ заявки"
+       Which should I use?
+
+You: Use the first one
+
+Agent: Thanks! Continuing...
+       ✅ file3.xlsx - processed (28 rows)
+       
+       📊 All files processed! Total: 105 rows extracted
+```
+
+**Example - Interactive exploration:**
 ```
 You: List all Excel files
-Agent: Found 3 Excel files: [shows list]
+Agent: Found 3 files [shows list]
 
 You: Show me the sheets in report.xlsx
 Agent: [displays sheets with row counts]
 
-You: Find order numbers and costs in Sheet1
-Agent: [uses AI to identify columns]
-
-You: Extract that data
-Agent: [extracts and saves to CSV]
+You: Process that file
+Agent: [runs full pipeline and shows results]
 ```
 
-See [CHAT_INTERFACE_README.md](CHAT_INTERFACE_README.md) for detailed documentation.
+See detailed documentation:
+- [AUTONOMOUS_AGENT_GUIDE.md](AUTONOMOUS_AGENT_GUIDE.md) - Autonomous processing guide
+- [CHAT_INTERFACE_README.md](CHAT_INTERFACE_README.md) - Chat interface details
 
 ### Running Both Interfaces Simultaneously
 
@@ -188,7 +229,8 @@ excel_agent/
 ├── .env                  # Environment variables (create this)
 ├── .env.example          # Example environment file
 ├── README.md             # This file
-└── CHAT_INTERFACE_README.md  # Chat interface documentation ✨ NEW
+├── CHAT_INTERFACE_README.md      # Chat interface documentation ✨ NEW
+└── AUTONOMOUS_AGENT_GUIDE.md     # Autonomous processing guide ✨ NEW
 ```
 
 ## 🛠️ Development
