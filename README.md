@@ -4,7 +4,9 @@ An intelligent tool for extracting data from multiple Excel files with varying s
 
 ## Version history
 
-- 
+- v0.1 - работающий простой пайплайн
+- v0.2 - описание БД
+- v0.3 - агент с инструментами и чатом
 
 ## 🎯 Purpose
 
