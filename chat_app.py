@@ -1,8 +1,9 @@
 """Streamlit Chat Interface for React Agent."""
 
 import streamlit as st
-from pathlib import Path
-from excel_agent.config import OPENAI_API_KEY, DATA_DIR, OUTPUT_DIR, DEFAULT_THREAD_ID, logger
+import uuid
+from datetime import datetime, date
+from excel_agent.config import OPENAI_API_KEY, DATA_DIR, DEFAULT_THREAD_ID, logger
 from excel_agent.react_agent import get_react_agent
 
 
@@ -14,8 +15,6 @@ def init_session_state():
         st.session_state.agent = None
     if "thread_id" not in st.session_state:
         st.session_state.thread_id = DEFAULT_THREAD_ID
-    if "processing_mode" not in st.session_state:
-        st.session_state.processing_mode = "ask_when_unsure"
     if "pending_message" not in st.session_state:
         st.session_state.pending_message = None
     if "uploaded_files" not in st.session_state:
@@ -37,21 +36,21 @@ def display_chat_message(role: str, content: str):
 
 def main():
     st.set_page_config(
-        page_title="Excel Agent Chat",
+        page_title="Чат с Excel агентом",
         page_icon="💬",
         layout="wide"
     )
     
-    st.title("💬 Excel Agent Chat Interface")
+    st.title("💬 Чат с Excel агентом")
     st.markdown("""
-    Chat with an AI assistant that can help you process Excel files.
+    Общайтесь с AI-ассистентом, который поможет обработать ваши Excel файлы.
     
-    **👈 Start by configuring files and metadata in the sidebar, then click "Start Processing"**
+    **👈 Настройте файлы и метаданные на боковой панели, затем нажмите "Начать обработку"**
     """)
     
     # Check API key
     if not OPENAI_API_KEY:
-        st.error("⚠️ OpenAI API key not found. Please set OPENAI_API_KEY in your .env file.")
+        st.error("⚠️ OpenAI API ключ не найден. Пожалуйста, установите OPENAI_API_KEY в файле .env")
         st.stop()
     
     # Initialize session state
@@ -59,18 +58,14 @@ def main():
     
     # Sidebar
     with st.sidebar:
-        st.header("⚙️ Settings")
-        
-        st.markdown("---")
-        
         # File Upload
-        st.subheader("📁 File Upload")
+        st.subheader("📁 Загрузка файлов")
         
         uploaded_files = st.file_uploader(
             "Выберите Excel файлы:",
             type=["xlsx", "xls"],
             accept_multiple_files=True,
-            help="Upload one or more Excel files to process"
+            help="Загрузите один или несколько Excel файлов для обработки"
         )
         
         if uploaded_files:
@@ -84,10 +79,9 @@ def main():
         st.markdown("---")
         
         # Metadata Input
-        st.subheader("📋 Document Metadata")
+        st.subheader("📋 Метаданные документов")
         
         # Period selection (month and year)
-        from datetime import datetime
         col1, col2 = st.columns(2)
         with col1:
             months = {
@@ -112,7 +106,6 @@ def main():
             )
         
         # Store as date object (first day of the month)
-        from datetime import date
         period = date(selected_year, selected_month, 1)
         st.session_state.period = period
         
@@ -120,7 +113,7 @@ def main():
             "Код филиала:",
             value=st.session_state.branch_code,
             placeholder="Например: BRN001",
-            help="Branch code for the documents"
+            help="Код филиала для документов"
         )
         st.session_state.branch_code = branch_code
         
@@ -128,47 +121,26 @@ def main():
             "Наименование подрядчика:",
             value=st.session_state.contractor_name,
             placeholder="Например: ООО «Подрядчик»",
-            help="Contractor/counterparty name"
+            help="Наименование контрагента/подрядчика"
         )
         st.session_state.contractor_name = contractor_name
         
         st.markdown("---")
         
-        # Processing Mode Selection
-        st.subheader("🎛️ Processing Mode")
-        mode = st.radio(
-            "Select mode:",
-            options=["fully_automatic", "ask_when_unsure", "manual_review"],
-            format_func=lambda x: {
-                "fully_automatic": "🚀 Fully Automatic",
-                "ask_when_unsure": "🤔 Ask When Unsure",
-                "manual_review": "👁️ Manual Review"
-            }[x],
-            index=1,  # Default to "ask_when_unsure"
-            help="""
-            **Fully Automatic**: Process everything automatically
-            **Ask When Unsure**: Stop for review when confidence is not high
-            **Manual Review**: Review each file before processing
-            """
-        )
-        st.session_state.processing_mode = mode
-        
-        st.markdown("---")
-        
         # Quick actions
-        st.subheader("🚀 Quick Actions")
+        st.subheader("🚀 Быстрые действия")
         
         # Start Processing button
-        if st.button("▶️ Start Processing", use_container_width=True, type="primary"):
+        if st.button("▶️ Начать обработку", use_container_width=True, type="primary"):
             # Validate inputs
             if not st.session_state.uploaded_files:
-                st.error("⚠️ Please upload at least one file")
+                st.error("⚠️ Пожалуйста, загрузите хотя бы один файл")
             elif not st.session_state.period:
-                st.error("⚠️ Please enter Отчетный период")
+                st.error("⚠️ Пожалуйста, укажите отчетный период")
             elif not st.session_state.branch_code:
-                st.error("⚠️ Please enter Код филиала")
+                st.error("⚠️ Пожалуйста, укажите код филиала")
             elif not st.session_state.contractor_name:
-                st.error("⚠️ Please enter Наименование подрядчика")
+                st.error("⚠️ Пожалуйста, укажите наименование подрядчика")
             else:
                 # Save uploaded files to data directory
                 saved_files = []
@@ -178,29 +150,22 @@ def main():
                         f.write(uploaded_file.getbuffer())
                     saved_files.append(uploaded_file.name)
                 
-                # Add a special message to trigger processing
-                mode_text = {
-                    "fully_automatic": "fully automatic mode",
-                    "ask_when_unsure": "careful mode (ask when unsure)",
-                    "manual_review": "manual review mode"
-                }[st.session_state.processing_mode]
-                
                 # Format file list
                 if len(saved_files) == 1:
-                    files_text = f"file '{saved_files[0]}'"
+                    files_text = f"файл '{saved_files[0]}'"
                 elif len(saved_files) <= 3:
-                    files_text = f"files: {', '.join(saved_files)}"
+                    files_text = f"файлы: {', '.join(saved_files)}"
                 else:
-                    files_text = f"{len(saved_files)} files"
+                    files_text = f"{len(saved_files)} файлов"
                 
                 # Format period as "Месяц YYYY"
                 months_ru = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
                              "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
                 period_str = f"{months_ru[st.session_state.period.month - 1]} {st.session_state.period.year}"
                 
-                prompt = f"""Start processing {files_text} in {mode_text}.
+                prompt = f"""Начни обработку {files_text}.
 
-Metadata:
+Метаданные:
 - Отчетный период: {period_str}
 - Код филиала: {st.session_state.branch_code}
 - Наименование подрядчика: {st.session_state.contractor_name}"""
@@ -213,15 +178,19 @@ Metadata:
         
         # Show current selection summary
         if st.session_state.uploaded_files and st.session_state.period and st.session_state.branch_code and st.session_state.contractor_name:
-            with st.expander("📋 Current Configuration", expanded=False):
-                st.write(f"**Files:** {len(st.session_state.uploaded_files)}")
+            with st.expander("📋 Текущая конфигурация", expanded=False):
+                st.write(f"**Файлов:** {len(st.session_state.uploaded_files)}")
                 for f in st.session_state.uploaded_files[:5]:
                     st.text(f"  • {f.name}")
                 if len(st.session_state.uploaded_files) > 5:
-                    st.text(f"  ... and {len(st.session_state.uploaded_files) - 5} more")
-                st.write(f"**Period:** {st.session_state.period}")
-                st.write(f"**Branch:** {st.session_state.branch_code}")
-                st.write(f"**Contractor:** {st.session_state.contractor_name}")
+                    st.text(f"  ... ещё {len(st.session_state.uploaded_files) - 5}")
+                # Format period
+                months_ru = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+                             "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+                period_str = f"{months_ru[st.session_state.period.month - 1]} {st.session_state.period.year}"
+                st.write(f"**Период:** {period_str}")
+                st.write(f"**Филиал:** {st.session_state.branch_code}")
+                st.write(f"**Подрядчик:** {st.session_state.contractor_name}")
         
         st.markdown("---")
         
@@ -229,40 +198,38 @@ Metadata:
         st.info(f"**Thread ID:** `{st.session_state.thread_id}`")
         
         # Clear chat button
-        if st.button("🗑️ Clear Chat", use_container_width=True):
+        if st.button("🗑️ Очистить чат", use_container_width=True):
             st.session_state.messages = []
             # Create new thread ID for fresh conversation
-            import uuid
             st.session_state.thread_id = f"chat_{uuid.uuid4().hex[:8]}"
             st.rerun()
         
         st.markdown("---")
         
         # Example prompts
-        st.subheader("💡 Tips")
+        st.subheader("💡 Подсказки")
         st.markdown("""
-        **Getting Started:**
-        1. Upload Excel files
-        2. Enter reporting period
-        3. Enter branch code
-        4. Enter contractor name
-        5. Choose processing mode
-        6. Click "▶️ Start Processing"
+        **Начало работы:**
+        1. Загрузите Excel файлы
+        2. Укажите отчетный период
+        3. Укажите код филиала
+        4. Укажите наименование подрядчика
+        5. Нажмите "▶️ Начать обработку"
         
-        **During Processing:**
-        - Agent will extract data automatically
-        - If unsure, agent will ask questions
-        - Results saved to output/ directory
+        **Во время обработки:**
+        - Агент автоматически извлечёт данные
+        - При неуверенности агент задаст вопросы
+        - Результаты сохраняются в папку output/
         """)
     
     # Initialize agent (lazy loading)
     if st.session_state.agent is None:
-        with st.spinner("Initializing agent..."):
+        with st.spinner("Инициализация агента..."):
             try:
                 st.session_state.agent = get_react_agent()
                 logger.info("Agent initialized successfully")
             except Exception as e:
-                st.error(f"Failed to initialize agent: {str(e)}")
+                st.error(f"Ошибка инициализации агента: {str(e)}")
                 logger.error(f"Agent initialization error: {str(e)}")
                 st.stop()
     
@@ -277,7 +244,7 @@ Metadata:
         
         # Get agent response
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Thinking..."):
+            with st.spinner("Думаю..."):
                 try:
                     # Invoke the agent with thread_id for memory persistence
                     config = {"configurable": {"thread_id": st.session_state.thread_id}}
@@ -297,7 +264,7 @@ Metadata:
                         else:
                             assistant_response = str(last_message)
                     else:
-                        assistant_response = "I apologize, but I couldn't generate a response."
+                        assistant_response = "Извините, не удалось сгенерировать ответ."
                     
                     st.markdown(assistant_response)
                     
@@ -308,7 +275,7 @@ Metadata:
                     })
                     
                 except Exception as e:
-                    error_msg = f"Error: {str(e)}"
+                    error_msg = f"Ошибка: {str(e)}"
                     st.error(error_msg)
                     logger.error(f"Agent invocation error: {str(e)}", exc_info=True)
                     st.session_state.messages.append({
@@ -320,14 +287,14 @@ Metadata:
         st.rerun()
     
     # Chat input - always show it
-    if prompt := st.chat_input("Ask me anything about your Excel files..."):
+    if prompt := st.chat_input("Задайте любой вопрос о ваших Excel файлах..."):
         # Add user message to chat history
         st.session_state.messages.append({"role": "user", "content": prompt})
         display_chat_message("user", prompt)
         
         # Get agent response
         with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Thinking..."):
+            with st.spinner("Думаю..."):
                 try:
                     # Invoke the agent with thread_id for memory persistence
                     config = {"configurable": {"thread_id": st.session_state.thread_id}}
@@ -347,7 +314,7 @@ Metadata:
                         else:
                             assistant_response = str(last_message)
                     else:
-                        assistant_response = "I apologize, but I couldn't generate a response."
+                        assistant_response = "Извините, не удалось сгенерировать ответ."
                     
                     st.markdown(assistant_response)
                     
@@ -358,7 +325,7 @@ Metadata:
                     })
                     
                 except Exception as e:
-                    error_msg = f"Error: {str(e)}"
+                    error_msg = f"Ошибка: {str(e)}"
                     st.error(error_msg)
                     logger.error(f"Agent invocation error: {str(e)}", exc_info=True)
                     st.session_state.messages.append({
