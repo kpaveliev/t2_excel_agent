@@ -5,6 +5,8 @@ from pathlib import Path
 import pandas as pd
 import time
 import os
+import re
+from datetime import datetime
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
@@ -16,6 +18,59 @@ from excel_agent.db_manager import get_db_manager
 # Глобальное хранилище для взаимодействия с человеком
 _human_question_queue = []
 _human_answer_queue = []
+
+
+def parse_period(period_str: Optional[str]) -> Optional[str]:
+    """Парсинг периода в формат YYYY-MM-DD.
+    
+    Поддерживает форматы:
+    - "2025-03-01" (уже в правильном формате)
+    - "Март 2025", "март 2025"
+    - "March 2025"
+    
+    Args:
+        period_str: Строка с периодом
+        
+    Returns:
+        Строка в формате YYYY-MM-DD или None
+    """
+    if not period_str:
+        return None
+    
+    period_str = period_str.strip()
+    
+    # Если уже в формате YYYY-MM-DD
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', period_str):
+        return period_str
+    
+    # Словарь месяцев на русском и английском
+    months_map = {
+        'январь': 1, 'января': 1, 'january': 1, 'jan': 1,
+        'февраль': 2, 'февраля': 2, 'february': 2, 'feb': 2,
+        'март': 3, 'марта': 3, 'march': 3, 'mar': 3,
+        'апрель': 4, 'апреля': 4, 'april': 4, 'apr': 4,
+        'май': 5, 'мая': 5, 'may': 5,
+        'июнь': 6, 'июня': 6, 'june': 6, 'jun': 6,
+        'июль': 7, 'июля': 7, 'july': 7, 'jul': 7,
+        'август': 8, 'августа': 8, 'august': 8, 'aug': 8,
+        'сентябрь': 9, 'сентября': 9, 'september': 9, 'sep': 9,
+        'октябрь': 10, 'октября': 10, 'october': 10, 'oct': 10,
+        'ноябрь': 11, 'ноября': 11, 'november': 11, 'nov': 11,
+        'декабрь': 12, 'декабря': 12, 'december': 12, 'dec': 12,
+    }
+    
+    # Пробуем найти "Месяц YYYY"
+    match = re.search(r'(\w+)\s+(\d{4})', period_str, re.IGNORECASE)
+    if match:
+        month_name = match.group(1).lower()
+        year = match.group(2)
+        
+        if month_name in months_map:
+            month = months_map[month_name]
+            return f"{year}-{month:02d}-01"
+    
+    logger.warning(f"Не удалось распарсить период: {period_str}")
+    return None
 
 
 @tool
@@ -54,6 +109,9 @@ def run_pipeline(filename: str, branch_code: str, contractor_name: str, period: 
         Результаты обработки или запрос на проверку человеком.
     """
     try:
+        # Парсим период в правильный формат
+        period_parsed = parse_period(period) if period else None
+        
         file_path = DATA_DIR / filename
         if not file_path.exists():
             return f"❌ Файл не найден: {filename}"
@@ -92,7 +150,7 @@ def run_pipeline(filename: str, branch_code: str, contractor_name: str, period: 
                     branch_code=branch_code,
                     contractor_name=contractor_name,
                     column_mapping=mapping,
-                    period=period
+                    period=period_parsed
                 )
                 result_msg += f"\n💾 Сохранено {inserted} записей в базу данных"
             except Exception as db_error:
@@ -147,6 +205,9 @@ def run_batch_pipeline(
         Сводка результатов обработки всех файлов.
     """
     try:
+        # Парсим период в правильный формат
+        period_parsed = parse_period(period) if period else None
+        
         # Получаем список файлов
         if filenames:
             excel_files = [DATA_DIR / f for f in filenames if (DATA_DIR / f).exists()]
@@ -194,7 +255,7 @@ def run_batch_pipeline(
                             branch_code=branch_code,
                             contractor_name=contractor_name,
                             column_mapping=mapping,
-                            period=period
+                            period=period_parsed
                         )
                         total_rows += inserted
                     except Exception as db_error:
@@ -490,12 +551,18 @@ def create_excel_react_agent():
     system_message = """
 Ты ассистент по обработке Excel файлов и работе с базой данных DuckDB. Твоя задача - обрабатывать Excel файлы и сохранять данные в базу данных DuckDB.
 
+**ВАЖНО про параметр period:**
+Когда пользователь указывает период (например, "Февраль 2025", 
+ты ОБЯЗАН передавать period в функции и SQL запросах в формате ISO: 'YYYY-MM-DD'.
+Например: period='2025-02-01' для февраля 2025, period='2025-03-01' для марта 2025.
+
 **Твой процесс работы:**
 - Проверить что данные файла еще не были обработаны
     - проверить filename в таблице processed_requests
+- Даже если название отличается проверить, что нет записей для этого подрядчика, филиала и периода
     - проверить что нет записей для тех же самых period, counterparty, branch_code (одновременно)
-- Если файл еще не был обработан, то обработать его с передачей всех метаданных включая period
-- Если файл уже был обработан, то сообщить пользователю что данные уже были обработаны
+- Если файл и данные еще не были обработаны, то обработать ег
+- Если файл или данные уже были обработаны, то сообщить пользователю что данные уже были обработаны
 
 **Пайплайн обработки автоматически:**
 - Читает Excel файл и все листы
