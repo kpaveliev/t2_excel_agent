@@ -38,7 +38,8 @@ class DatabaseManager:
         data: pd.DataFrame,
         branch_code: str,
         contractor_name: str,
-        column_mapping: Dict[str, str]
+        column_mapping: Dict[str, str],
+        period: Optional[str] = None
     ) -> int:
         """Сохранить обработанные данные в БД.
         
@@ -48,6 +49,7 @@ class DatabaseManager:
             branch_code: Код филиала
             contractor_name: Наименование подрядчика
             column_mapping: Маппинг колонок (исходное имя -> стандартное)
+            period: Отчетный период (дата в формате 'YYYY-MM-DD' или datetime)
         
         Returns:
             Количество вставленных записей
@@ -61,6 +63,7 @@ class DatabaseManager:
             for _, row in data.iterrows():
                 record = {
                     'filename': filename,
+                    'period': period,
                     'branch_code': branch_code,
                     'counterparty': contractor_name,
                     'object_code': self._get_value(row, column_mapping, 'object_code'),
@@ -91,7 +94,7 @@ class DatabaseManager:
             conn.register("df_to_insert", df_to_insert)
             conn.execute("""
                 INSERT INTO processed_requests (
-                    filename, branch_code, counterparty, object_code, object_distance_km,
+                    filename, period, branch_code, counterparty, object_code, object_distance_km,
                     request_number, request_datetime, contractor_arrival_datetime,
                     contractor_departure_datetime, work_item_number, work_name,
                     work_description, avr_cancellation_price, request_work_cost,

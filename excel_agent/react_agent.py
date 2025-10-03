@@ -38,7 +38,7 @@ def list_excel_files() -> str:
 
 
 @tool
-def run_pipeline(filename: str, branch_code: str, contractor_name: str, require_high_confidence: bool = False) -> str:
+def run_pipeline(filename: str, branch_code: str, contractor_name: str, period: Optional[str] = None, require_high_confidence: bool = False) -> str:
     """Запустить полный пайплайн обработки Excel файла.
     
     Этот инструмент выполняет полный StateGraph workflow (чтение → анализ → извлечение → сохранение в БД).
@@ -47,6 +47,7 @@ def run_pipeline(filename: str, branch_code: str, contractor_name: str, require_
         filename: Имя Excel файла для обработки
         branch_code: Код филиала
         contractor_name: Наименование подрядчика
+        period: Отчетный период (дата в формате 'YYYY-MM-DD')
         require_high_confidence: Если True, предупреждает при уверенности ниже "high"
     
     Returns:
@@ -90,7 +91,8 @@ def run_pipeline(filename: str, branch_code: str, contractor_name: str, require_
                     data=extracted_data,
                     branch_code=branch_code,
                     contractor_name=contractor_name,
-                    column_mapping=mapping
+                    column_mapping=mapping,
+                    period=period
                 )
                 result_msg += f"\n💾 Сохранено {inserted} записей в базу данных"
             except Exception as db_error:
@@ -126,6 +128,7 @@ def run_batch_pipeline(
     filenames: Optional[List[str]] = None,
     branch_code: str = "",
     contractor_name: str = "",
+    period: Optional[str] = None,
     auto_mode: bool = True,
     require_high_confidence: bool = False
 ) -> str:
@@ -135,6 +138,7 @@ def run_batch_pipeline(
         filenames: Список имен файлов для обработки. Если None, обрабатывает все файлы.
         branch_code: Код филиала
         contractor_name: Наименование подрядчика
+        period: Отчетный период (дата в формате 'YYYY-MM-DD')
         auto_mode: Если True, обрабатывает все файлы автоматически.
                    Если False, останавливается для проверки при низкой уверенности.
         require_high_confidence: Если True, помечает файлы с не-высокой уверенностью.
@@ -189,7 +193,8 @@ def run_batch_pipeline(
                             data=extracted_data,
                             branch_code=branch_code,
                             contractor_name=contractor_name,
-                            column_mapping=mapping
+                            column_mapping=mapping,
+                            period=period
                         )
                         total_rows += inserted
                     except Exception as db_error:
@@ -486,11 +491,11 @@ def create_excel_react_agent():
 Ты ассистент по обработке Excel файлов и работе с базой данных DuckDB. Твоя задача - обрабатывать Excel файлы и сохранять данные в базу данных DuckDB.
 
 **Твой процесс работы:**
-- Проверить что данные файла еще не были обработаны (проверить filename в таблице processed_requests)
-- Если файл еще не был обработан, то обработать его
+- Проверить что данные файла еще не были обработаны
+    - проверить filename в таблице processed_requests
+    - проверить что нет записей для тех же самых period, counterparty, branch_code (одновременно)
+- Если файл еще не был обработан, то обработать его с передачей всех метаданных включая period
 - Если файл уже был обработан, то сообщить пользователю что данные уже были обработаны
-
-
 
 **Пайплайн обработки автоматически:**
 - Читает Excel файл и все листы

@@ -158,15 +158,16 @@ def main():
                 else:
                     files_text = f"{len(saved_files)} файлов"
                 
-                # Format period as "Месяц YYYY"
+                # Format period as "Месяц YYYY" and ISO format
                 months_ru = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
                              "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
                 period_str = f"{months_ru[st.session_state.period.month - 1]} {st.session_state.period.year}"
+                period_iso = st.session_state.period.strftime('%Y-%m-%d')
                 
                 prompt = f"""Начни обработку {files_text}.
 
 Метаданные:
-- Отчетный период: {period_str}
+- Отчетный период: {period_str} (период в формате для БД: {period_iso})
 - Код филиала: {st.session_state.branch_code}
 - Наименование подрядчика: {st.session_state.contractor_name}"""
                 
