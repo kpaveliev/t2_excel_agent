@@ -9,6 +9,7 @@ An intelligent tool for extracting data from multiple Excel files with varying s
 - v0.3 - агент с инструментами и чатом
 - v0.4 - не помню (может пайплайн добавил)
 - v0.5 - только с инструментами пайплайн без отдельных файлов
+- v0.6 - sql база и агент
 
 ## 🎯 Purpose
 
