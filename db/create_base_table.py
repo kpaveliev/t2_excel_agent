@@ -47,6 +47,9 @@ def create_base_table():
             -- Имя файла
             filename VARCHAR NOT NULL,
             
+            -- Отчетный период
+            period DATE,
+            
             -- Код филиала
             branch_code VARCHAR,
             
@@ -101,6 +104,7 @@ def create_base_table():
         print("  → Adding column comments...")
         column_comments = {
             'filename': 'Имя файла',
+            'period': 'Отчетный период',
             'branch_code': 'Код филиала',
             'counterparty': 'Наименование контрагента',
             'object_code': 'Номер объекта',
